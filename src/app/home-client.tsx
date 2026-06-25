@@ -242,6 +242,10 @@ export function HomeClient() {
         </div>
       </section>
 
+      <footer className="px-4 pb-6 pt-2 text-center">
+        <div className="text-[11px] text-muted/70">技术支持：龙虾出行开放平台</div>
+      </footer>
+
       <CityPicker
         open={cityOpen}
         onClose={() => setCityOpen(false)}
