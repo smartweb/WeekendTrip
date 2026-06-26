@@ -377,7 +377,7 @@ export function PackageDetailClient({
                             <div className="flex-1">
                               <div className="font-medium text-ink">{rt.room_name}</div>
                               <div className="text-[12px] text-muted">
-                                {bedTypeText(rt.bed_type)} {rt.area ? `· ${rt.area}㎡` : ""} · 可住{rt.max_occupancy ?? 2}人
+                                {[bedTypeText(rt.bed_type, rt.room_name), rt.area ? `${rt.area}㎡` : "", `可住${rt.max_occupancy ?? 2}人`].filter(Boolean).join(" · ")}
                                 {rt.has_window === false ? " · 无窗" : ""}
                               </div>
                               <div className="flex gap-1.5 mt-1.5 flex-wrap">
@@ -443,9 +443,16 @@ export function PackageDetailClient({
   );
 }
 
-function bedTypeText(t?: string) {
-  if (!t) return "";
-  return { big_bed: "大床", twin: "双床", multi: "多床" }[t] ?? t;
+function bedTypeText(t?: string, roomName?: string): string {
+  const known = { big_bed: "大床", twin: "双床", multi: "多床", single_bed: "单床", tatami: "榻榻米" } as Record<string, string>;
+  if (t && known[t]) return known[t];
+  // API 常把 bed_type 返回成 "unknown"，此时从房型名里推断
+  const name = roomName ?? "";
+  if (/双床|两张| twin/i.test(name)) return "双床";
+  if (/大床|king|queen/i.test(name)) return "大床";
+  if (/单床|single/i.test(name)) return "单床";
+  if (/榻榻米|榻/i.test(name)) return "榻榻米";
+  return "";
 }
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
