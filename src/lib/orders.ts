@@ -16,7 +16,15 @@ export interface StoredTrip {
   flightOrderId?: string;
   /** 酒店订单号 */
   hotelOrderId?: string;
-  /** 套餐总价快照（元） */
+  /** 机票订单收银台链接（API 不支持统一支付，需一单一单支付） */
+  flightCheckoutUrl?: string;
+  /** 酒店订单收银台链接 */
+  hotelCheckoutUrl?: string;
+  /** 机票订单金额（元） */
+  flightAmount?: number;
+  /** 酒店订单金额（元） */
+  hotelAmount?: number;
+  /** 套餐总价快照（元，= 机票 + 酒店） */
   totalPrice?: number;
   /** 出发 / 目的地展示文本 */
   route?: string;

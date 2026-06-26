@@ -141,6 +141,10 @@ export function BookingClient({
       title: `${sp.originName} ⇄ ${sp.destName}`,
       flightOrderId: fr.data.platform_order_id ?? fr.data.out_trade_no,
       hotelOrderId: hr.data.platform_order_id ?? hr.data.out_trade_no,
+      flightCheckoutUrl: fr.data.checkout_url,
+      hotelCheckoutUrl: hr.data.checkout_url,
+      flightAmount: fr.data.total_amount,
+      hotelAmount: hr.data.total_amount,
       route: summary,
       dates: `${fmt(sp.checkIn ?? "")}-${fmt(sp.checkOut ?? "")}`,
       paxSummary: `${adults}大${children}小`,
@@ -152,11 +156,10 @@ export function BookingClient({
     setSubmitting(false);
   }
 
-  // 成功页
+  // 成功页：一单一单支付（机票、酒店各自独立的收银台）
   if (result) {
-    const checkoutUrl = result.flight?.checkout_url || result.hotel?.checkout_url;
-    const flightAmt = result.flight?.total_amount;
-    const hotelAmt = result.hotel?.total_amount;
+    const fUrl = result.flight?.checkout_url;
+    const hUrl = result.hotel?.checkout_url;
     return (
       <main className="pb-safe">
         <NavBar title="下单结果" back="/" />
@@ -168,27 +171,57 @@ export function BookingClient({
               </svg>
             </div>
             <div className="font-display text-[20px] font-medium text-ink">订单创建成功</div>
-            <div className="text-[13px] text-muted mt-1">请尽快完成支付（真实订单）</div>
+            <div className="text-[13px] text-muted mt-1">两笔订单需分别支付（不合并收款）</div>
 
-            <div className="mt-5 text-left space-y-2.5 text-[13px]">
+            {/* 机票订单 */}
+            <div className="mt-5 text-left rounded-xl border border-line p-4 bg-canvas/60">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-medium text-ink">✈️ 机票订单</span>
+                {result.flight?.total_amount != null && (
+                  <span className="font-display text-brand font-semibold">¥{Math.round(result.flight.total_amount).toLocaleString("zh-CN")}</span>
+                )}
+              </div>
               {result.flight?.platform_order_id && (
-                <Row label="机票订单号" value={result.flight.platform_order_id} />
+                <div className="text-[11px] text-muted mt-1 break-all">订单号 {result.flight.platform_order_id}</div>
               )}
-              {result.hotel?.platform_order_id && <Row label="酒店订单号" value={result.hotel.platform_order_id!} />}
-              {flightAmt != null && <Row label="机票金额" value={`¥${Math.round(flightAmt).toLocaleString("zh-CN")}`} />}
-              {hotelAmt != null && <Row label="酒店金额" value={`¥${Math.round(hotelAmt).toLocaleString("zh-CN")}`} />}
+              <a
+                href={fUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`mt-3 block w-full h-11 leading-[2.75rem] text-center rounded-full font-medium btn-press ${
+                  fUrl ? "bg-brand text-white shadow-soft" : "bg-canvas text-muted"
+                }`}
+              >
+                {fUrl ? "支付机票" : "未获取到支付链接"}
+              </a>
             </div>
 
-            {checkoutUrl ? (
+            {/* 酒店订单 */}
+            <div className="mt-3 text-left rounded-xl border border-line p-4 bg-canvas/60">
+              <div className="flex items-center justify-between">
+                <span className="text-[13px] font-medium text-ink">🏨 酒店订单</span>
+                {result.hotel?.total_amount != null && (
+                  <span className="font-display text-brand font-semibold">¥{Math.round(result.hotel.total_amount).toLocaleString("zh-CN")}</span>
+                )}
+              </div>
+              {result.hotel?.platform_order_id && (
+                <div className="text-[11px] text-muted mt-1 break-all">订单号 {result.hotel.platform_order_id}</div>
+              )}
               <a
-                href={checkoutUrl}
-                className="mt-6 block w-full h-12 leading-[3rem] text-center rounded-full bg-brand text-white font-medium btn-press shadow-soft"
+                href={hUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`mt-3 block w-full h-11 leading-[2.75rem] text-center rounded-full font-medium btn-press ${
+                  hUrl ? "bg-brand text-white shadow-soft" : "bg-canvas text-muted"
+                }`}
               >
-                去支付（收银台）
+                {hUrl ? "支付酒店" : "未获取到支付链接"}
               </a>
-            ) : (
-              <div className="mt-6 text-[13px] text-ochre">未获取到支付链接。</div>
-            )}
+            </div>
+
+            <div className="mt-4 text-[11px] text-muted leading-relaxed text-left">
+              请分别完成两笔订单的支付。每笔订单独立收款，互不影响。
+            </div>
 
             <div className="mt-3 flex gap-2">
               <a href="/orders" className="flex-1 h-11 leading-[2.75rem] text-center rounded-full border border-line text-ink btn-press">
@@ -328,13 +361,4 @@ export function BookingClient({
   function update(i: number, patch: Partial<Pax>) {
     setPaxes((arr) => arr.map((p, idx) => (idx === i ? { ...p, ...patch } : p)));
   }
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between">
-      <span className="text-muted">{label}</span>
-      <span className="font-medium text-ink break-all text-right max-w-[60%]">{value}</span>
-    </div>
-  );
 }

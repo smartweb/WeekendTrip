@@ -39,7 +39,6 @@ export function OrdersClient() {
 }
 
 function TripCard({ trip, onRemove }: { trip: StoredTrip; onRemove: () => void }) {
-  const created = new Date(trip.createdAt);
   return (
     <div className="bg-cream rounded-xl2 shadow-card p-4 fade-up border border-line">
       <div className="flex items-start justify-between">
@@ -54,9 +53,22 @@ function TripCard({ trip, onRemove }: { trip: StoredTrip; onRemove: () => void }
         </button>
       </div>
 
-      <div className="mt-3 space-y-2 text-[13px] border-t border-line pt-3">
-        <OrderLine label="机票订单" orderId={trip.flightOrderId} />
-        <OrderLine label="酒店订单" orderId={trip.hotelOrderId} />
+      {/* 两笔订单，各自独立支付 */}
+      <div className="mt-3 space-y-2.5 border-t border-line pt-3">
+        <OrderPayRow
+          icon="✈️"
+          label="机票订单"
+          orderId={trip.flightOrderId}
+          amount={trip.flightAmount}
+          checkoutUrl={trip.flightCheckoutUrl}
+        />
+        <OrderPayRow
+          icon="🏨"
+          label="酒店订单"
+          orderId={trip.hotelOrderId}
+          amount={trip.hotelAmount}
+          checkoutUrl={trip.hotelCheckoutUrl}
+        />
       </div>
 
       {trip.totalPrice ? (
@@ -66,27 +78,49 @@ function TripCard({ trip, onRemove }: { trip: StoredTrip; onRemove: () => void }
         </div>
       ) : null}
 
-      <div className="mt-3 flex items-center gap-2">
-        <span className="text-[11px] px-2.5 py-1 rounded-full bg-ochre-soft text-ochre">待支付</span>
-        <div className="text-[10px] text-muted">
-          下单于 {created.getMonth() + 1}/{created.getDate()} {String(created.getHours()).padStart(2, "0")}:{String(created.getMinutes()).padStart(2, "0")}
-        </div>
-      </div>
-
       <div className="mt-2 text-[10px] text-muted leading-relaxed">
-        支付需在下单时跳转的收银台完成。如需重新支付，请重新下单（订单号 10 分钟内有效）。
+        两笔订单需分别支付（不合并收款）。订单号有效期约 10 分钟，过期需重新下单。
       </div>
     </div>
   );
 }
 
-function OrderLine({ label, orderId }: { label: string; orderId?: string }) {
+/** 单笔订单行：金额 + 各自的「去支付」按钮 */
+function OrderPayRow({
+  icon,
+  label,
+  orderId,
+  amount,
+  checkoutUrl,
+}: {
+  icon: string;
+  label: string;
+  orderId?: string;
+  amount?: number;
+  checkoutUrl?: string;
+}) {
   return (
-    <div className="flex items-center justify-between">
-      <div>
-        <span className="text-muted">{label}：</span>
-        <span className="font-mono text-[12px] text-ink break-all">{orderId ?? "未创建"}</span>
+    <div className="flex items-center justify-between gap-2">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <span>{icon}</span>
+          <span className="text-[13px] font-medium text-ink">{label}</span>
+          {amount != null && (
+            <span className="font-display text-brand font-semibold text-[14px]">¥{Math.round(amount).toLocaleString("zh-CN")}</span>
+          )}
+        </div>
+        <div className="font-mono text-[11px] text-muted mt-0.5 break-all">{orderId ?? "未创建"}</div>
       </div>
+      <a
+        href={checkoutUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`flex-shrink-0 h-9 px-4 rounded-full text-[12px] font-medium btn-press leading-[2.25rem] ${
+          checkoutUrl ? "bg-brand text-white shadow-soft" : "bg-canvas text-muted"
+        }`}
+      >
+        {checkoutUrl ? "去支付" : "无链接"}
+      </a>
     </div>
   );
 }

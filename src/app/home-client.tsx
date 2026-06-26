@@ -1,10 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FAMILY_DESTINATIONS, ORIGIN_CITIES, findOrigin, findDestination } from "@/lib/catalog";
 import { CityPicker } from "@/components/CityPicker";
 import { PackageCard, type HomePackage } from "@/components/PackageCard";
-import { Spinner, ErrorBanner, EmptyState } from "@/components/ui";
+import { ErrorBanner, EmptyState } from "@/components/ui";
 import { TabBar } from "@/components/NavBar";
 import { TravelPicker, type TravelChoice } from "@/components/TravelPicker";
 import { api } from "@/lib/browserFetch";
@@ -48,13 +48,17 @@ export function HomeClient() {
   const [cityOpen, setCityOpen] = useState(false);
   const [travelOpen, setTravelOpen] = useState(false);
 
-  const [loading, setLoading] = useState(true);
+  // 流式加载：卡片随到随显，loading 仅代表是否还有未完成的请求
+  const [cards, setCards] = useState<{ destId: string; pkg: PackageResp["packages"][number] }[]>([]);
+  const [pending, setPending] = useState(FAMILY_DESTINATIONS.length);
   const [error, setError] = useState<{ msg: string; auth?: boolean } | null>(null);
-  const [data, setData] = useState<PackageResp | null>(null);
+  const reqId = useRef(0);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const myId = ++reqId.current;
     setError(null);
+    setCards([]);
+    setPending(FAMILY_DESTINATIONS.length);
 
     const fetchOne = async (dest: (typeof FAMILY_DESTINATIONS)[number]) => {
       const r = await api<PackageResp>("/api/package", {
@@ -70,43 +74,39 @@ export function HomeClient() {
           hotelMaxPerNight: travel.hotelMaxPerNight,
         },
       });
-      return { dest, r };
+      // 过期的请求（用户改了筛选条件）丢弃，避免乱序覆盖
+      if (myId !== reqId.current) return;
+      return { dest, r } as const;
     };
-    // 并发拉取各目的地（QPS 已提升至 100）
-    const CONCURRENCY = 4;
-    const results: { dest: (typeof FAMILY_DESTINATIONS)[number]; r: Awaited<ReturnType<typeof fetchOne>>["r"] }[] = [];
-    for (let i = 0; i < FAMILY_DESTINATIONS.length; i += CONCURRENCY) {
-      const batch = FAMILY_DESTINATIONS.slice(i, i + CONCURRENCY);
-      const part = await Promise.all(batch.map(fetchOne));
-      results.push(...part);
-    }
 
-    const authFail = results.find((x) => !x.r.ok) as
-      | { dest: typeof FAMILY_DESTINATIONS[number]; r: { ok: false; error: string; authRelated?: boolean } }
-      | undefined;
-    if (authFail && authFail.r.authRelated) {
-      setError({ msg: authFail.r.error, auth: true });
-      setData(null);
-      setLoading(false);
-      return;
-    }
+    // 并发池：上游对新 token 的 QPS 限制已提升至 100，可全部并发。
+    // 每个目的地一返回就立刻入列、重排渲染（流式出卡片）。
+    const MAX_PARALLEL = 6;
+    const queue = [...FAMILY_DESTINATIONS];
+    const runOne = async () => {
+      while (queue.length) {
+        const dest = queue.shift()!;
+        const res = await fetchOne(dest);
+        if (!res) return; // 已过期
 
-    const cards: { destId: string; pkg: PackageResp["packages"][number] }[] = [];
-    for (const { dest, r } of results) {
-      if (r.ok && r.data.packages?.length) {
-        const cheapest = [...r.data.packages].sort(
-          (a, b) => a.pricing.packageTotal - b.pricing.packageTotal
-        )[0];
-        cards.push({ destId: dest.id, pkg: cheapest });
+        if (!res.r.ok) {
+          if (res.r.authRelated) setError({ msg: res.r.error, auth: true });
+          setPending((n) => n - 1);
+          continue;
+        }
+        const pkgs = res.r.data.packages ?? [];
+        if (pkgs.length) {
+          const cheapest = [...pkgs].sort((a, b) => a.pricing.packageTotal - b.pricing.packageTotal)[0];
+          setCards((prev) =>
+            [...prev, { destId: dest.id, pkg: cheapest }].sort(
+              (a, b) => a.pkg.pricing.packageTotal - b.pkg.pricing.packageTotal
+            )
+          );
+        }
+        setPending((n) => n - 1);
       }
-    }
-    cards.sort((a, b) => a.pkg.pricing.packageTotal - b.pkg.pricing.packageTotal);
-
-    setData({
-      packages: cards.map((c) => ({ ...c.pkg, destinationId: c.destId })),
-      meta: { adults: travel.adults, children: travel.children, nights: travel.nights },
-    });
-    setLoading(false);
+    };
+    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL, FAMILY_DESTINATIONS.length) }, runOne));
   }, [originCode, travel]);
 
   useEffect(() => {
@@ -114,13 +114,12 @@ export function HomeClient() {
   }, [load]);
 
   const origin = findOrigin(originCode)!;
+  const loading = pending > 0;
 
-  const homePackages: HomePackage[] = (data?.packages ?? []).map((p) => {
-    const dest = findDestination(p.destinationId)!;
-    const tags =
-      p.hotel.scene_tags && p.hotel.scene_tags.length
-        ? p.hotel.scene_tags
-        : dest.tags;
+  const homePackages: HomePackage[] = cards.map((c) => {
+    const dest = findDestination(c.destId)!;
+    const p = c.pkg;
+    const tags = p.hotel.scene_tags && p.hotel.scene_tags.length ? p.hotel.scene_tags : dest.tags;
     return {
       destinationId: dest.id,
       destinationName: dest.name,
@@ -199,16 +198,23 @@ export function HomeClient() {
       <section className="px-4 pb-3">
         <div className="flex items-end justify-between mb-3 px-1">
           <h2 className="font-display text-[20px] font-medium text-ink tracking-tightish">精选亲子套餐</h2>
-          <span className="text-[11px] text-muted">含酒店+往返机票</span>
+          <span className="text-[11px] text-muted">
+            {loading ? `搜索中 ${cards.length}/${FAMILY_DESTINATIONS.length}` : "含酒店+往返机票"}
+          </span>
         </div>
 
-        {loading && <Spinner label="正在为你搜索最佳组合…" />}
+        {error && <ErrorBanner message={error.msg} authRelated={error.auth} />}
 
-        {!loading && error && <ErrorBanner message={error.msg} authRelated={error.auth} />}
-
-        {!loading && !error && (
+        {!error && (
           <div className="space-y-4">
-            {homePackages.length === 0 ? (
+            {homePackages.length === 0 && loading ? (
+              // 骨架屏：8 个占位卡片，避免空白转圈
+              <div className="grid grid-cols-1 gap-4">
+                {Array.from({ length: FAMILY_DESTINATIONS.length }).map((_, i) => (
+                  <PackageCardSkeleton key={i} />
+                ))}
+              </div>
+            ) : homePackages.length === 0 ? (
               <EmptyState title="暂无可用套餐" hint="换个出发城市或日期试试" />
             ) : (
               <div className="grid grid-cols-1 gap-4">
@@ -219,6 +225,11 @@ export function HomeClient() {
                     href={`/package/${p.destinationId}?${queryBase(p.destinationId)}`}
                   />
                 ))}
+                {/* 尾部骨架：还有请求在进行时，已出卡片下方继续占位 */}
+                {loading &&
+                  Array.from({ length: Math.min(3, pending) }).map((_, i) => (
+                    <PackageCardSkeleton key={`tail-${i}`} />
+                  ))}
               </div>
             )}
           </div>
@@ -258,6 +269,22 @@ export function HomeClient() {
 
       <TabBar active="home" />
     </main>
+  );
+}
+
+/** 套餐卡片骨架屏（与 PackageCard 尺寸一致） */
+function PackageCardSkeleton() {
+  return (
+    <div className="rounded-xl2 overflow-hidden bg-cream shadow-card">
+      <div className="skeleton h-52 w-full" />
+      <div className="p-4">
+        <div className="skeleton h-3.5 w-2/3 mb-2" />
+        <div className="flex items-end justify-between">
+          <div className="skeleton h-7 w-24" />
+          <div className="skeleton h-4 w-16" />
+        </div>
+      </div>
+    </div>
   );
 }
 
